@@ -1,0 +1,96 @@
+name: Update Public Firmware Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'artifacts/*.uf2'
+
+jobs:
+  publish-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout public repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve artifact metadata
+        id: meta
+        run: |
+          set -euo pipefail
+
+          mapfile -t UF2_FILES < <(
+            git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" -- 'artifacts/*.uf2'
+          )
+
+          if [ ${#UF2_FILES[@]} -eq 0 ]; then
+            echo "Could not resolve changed .uf2 artifact from push range ${{ github.event.before }}..${{ github.sha }}"
+            exit 1
+          fi
+
+          ARTIFACT_PATH="${UF2_FILES[0]}"
+          if [ ! -f "$ARTIFACT_PATH" ]; then
+            echo "Resolved artifact path does not exist in workspace: $ARTIFACT_PATH"
+            exit 1
+          fi
+
+          FILE_NAME=$(basename "$ARTIFACT_PATH")
+          VERSION=$(sed -nE 's/^ls-laser-v([0-9]+\.[0-9]+\.[0-9]+)\.uf2$/\1/p' <<< "$FILE_NAME")
+
+          if [ -z "$VERSION" ]; then
+            echo "Could not resolve version from artifact name $FILE_NAME"
+            exit 1
+          fi
+
+          echo "ARTIFACT_PATH=$ARTIFACT_PATH" >> "$GITHUB_OUTPUT"
+          echo "FILE_NAME=$FILE_NAME" >> "$GITHUB_OUTPUT"
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        id: release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ github.token }}
+          tag_name: v${{ steps.meta.outputs.VERSION }}
+          name: Release v${{ steps.meta.outputs.VERSION }}
+          body_path: revisions.txt
+          overwrite_files: true
+          files: ${{ steps.meta.outputs.ARTIFACT_PATH }}
+
+      - name: Update release.json metadata and remove revisions.txt
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ steps.meta.outputs.VERSION }}"
+          FILE_NAME="${{ steps.meta.outputs.FILE_NAME }}"
+          RELEASE_ASSETS='${{ steps.release.outputs.assets }}'
+
+          FW_URL=$(jq -er --arg fileName "$FILE_NAME" '.[] | select(.name == $fileName) | .browser_download_url' <<< "$RELEASE_ASSETS")
+
+          jq -n \
+            --arg version "$VERSION" \
+            --arg firmwareAssetUrl "$FW_URL" \
+            '{
+              version: $version,
+              firmwareAssetUrl: $firmwareAssetUrl
+            }' > release.json
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add release.json
+
+          if [ -f revisions.txt ]; then
+            git rm -f revisions.txt
+          fi
+
+          if git diff --cached --quiet; then
+            echo "No release.json changes to push."
+            exit 0
+          fi
+
+          git commit -m "Update firmware release metadata to v$VERSION"
+          git push
