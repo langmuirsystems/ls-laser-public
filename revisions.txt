@@ -1,0 +1,1 @@
+26.1.1: Adjustments in order to enable dedicated firmware version constant and serial command
