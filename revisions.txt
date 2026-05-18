@@ -1,0 +1,1 @@
+1.0.0: Switch LCB firmware welcome message to semantic Langmuir firmware version.
