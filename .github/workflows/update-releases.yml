@@ -61,7 +61,7 @@ jobs:
           overwrite_files: true
           files: ${{ steps.meta.outputs.ARTIFACT_PATH }}
 
-      - name: Update release.json metadata
+      - name: Update firmware release metadata
         run: |
           set -euo pipefail
 
@@ -79,12 +79,34 @@ jobs:
               firmwareAssetUrl: $firmwareAssetUrl
             }' > release.json
 
+          if [ -f releases.json ]; then
+            jq \
+              --arg version "$VERSION" \
+              --arg firmwareAssetUrl "$FW_URL" \
+              'map(select(.version != $version))
+                + [{
+                    version: $version,
+                    firmwareAssetUrl: $firmwareAssetUrl
+                  }]
+                | sort_by(.version | split(".") | map(tonumber))' \
+              releases.json > releases.json.tmp
+          else
+            jq -n \
+              --arg version "$VERSION" \
+              --arg firmwareAssetUrl "$FW_URL" \
+              '[{
+                version: $version,
+                firmwareAssetUrl: $firmwareAssetUrl
+              }]' > releases.json.tmp
+          fi
+          mv releases.json.tmp releases.json
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add release.json revisions.txt
+          git add release.json releases.json revisions.txt
 
           if git diff --cached --quiet; then
-            echo "No release.json changes to push."
+            echo "No firmware release metadata changes to push."
             exit 0
           fi
 
