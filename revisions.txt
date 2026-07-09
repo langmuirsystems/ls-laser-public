@@ -1,1 +1,2 @@
 1.0.0: Switch LCB firmware welcome message to semantic Langmuir firmware version.
+3.0.0: Replaced DryRun command with DROn and DROff explicit commands
