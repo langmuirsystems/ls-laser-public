@@ -50,6 +50,21 @@ jobs:
           echo "FILE_NAME=$FILE_NAME" >> "$GITHUB_OUTPUT"
           echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Extract release notes
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ steps.meta.outputs.VERSION }}"
+
+          awk -v prefix="$VERSION:" \
+            'found || index($0, prefix) == 1 { found = 1; print }' \
+            revisions.txt > release-notes.txt
+
+          if [ ! -s release-notes.txt ]; then
+            echo "Could not find release notes for firmware version $VERSION"
+            exit 1
+          fi
+
       - name: Create GitHub release
         id: release
         uses: softprops/action-gh-release@v2
@@ -57,7 +72,7 @@ jobs:
           token: ${{ github.token }}
           tag_name: v${{ steps.meta.outputs.VERSION }}
           name: Release v${{ steps.meta.outputs.VERSION }}
-          body_path: revisions.txt
+          body_path: release-notes.txt
           overwrite_files: true
           files: ${{ steps.meta.outputs.ARTIFACT_PATH }}
 
